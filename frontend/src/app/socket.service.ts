@@ -98,8 +98,9 @@ export class SocketService {
     });
 
     this.socket.on('newMessage', (message: ChatMessage) => {
-      this.messages.update((msgs) => [...msgs, message]);
-      if (message.chat_id !== this.currentChatId) {
+      if (message.chat_id === this.currentChatId) {
+        this.messages.update((msgs) => [...msgs, message]);
+      } else {
         this.unreadCounts.update(u => ({ ...u, [message.chat_id]: (u[message.chat_id] || 0) + 1 }));
       }
     });

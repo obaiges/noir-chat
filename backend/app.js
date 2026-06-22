@@ -293,23 +293,35 @@ io.on('connection', async (socket) => {
         );
         if (!isParticipant) return;
 
+        let messageId;
         try {
-            await db.run(
+            const result = await db.run(
                 'INSERT INTO messages (chat_id, sender_id, sender_nickname, message) VALUES (?, ?, ?, ?)',
                 chatId, socket.userId, socket.nickname, content
             );
+            messageId = result.lastID;
         } catch (e) {
             console.log("Error: ", e);
             return;
         }
 
-        io.to(`chat:${chatId}`).emit('newMessage', {
+        const messageData = {
+            id: messageId,
             chat_id: chatId,
             sender_id: socket.userId,
             sender_nickname: socket.nickname,
             message: content,
             created_at: new Date().toISOString()
-        });
+        };
+
+        const participants = await db.all(
+            'SELECT user_id FROM participants WHERE chat_id = ?',
+            chatId
+        );
+
+        for (const p of participants) {
+            io.to(`user:${p.user_id}`).emit('newMessage', messageData);
+        }
     });
 
     socket.on('sendInvite', async ({ phone, chatId }) => {
