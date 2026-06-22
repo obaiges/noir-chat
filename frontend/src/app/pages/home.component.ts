@@ -26,10 +26,23 @@ import { HttpClient } from '@angular/common/http';
       <main class="chat-list">
         @for (chat of socketService.chats(); track chat.id) {
           <div class="chat-item" (click)="openChat(chat.id)">
-            <div class="chat-avatar">{{ chat.is_dm ? 'DM' : 'G' }}</div>
+            <div class="chat-avatar">
+              {{ chat.is_dm ? 'DM' : 'G' }}
+              @if (socketService.unreadCounts()[chat.id]) {
+                <span class="unread-badge">{{ socketService.unreadCounts()[chat.id] }}</span>
+              }
+            </div>
             <div class="chat-info">
               <span class="chat-name">{{ chat.display_name }}</span>
-              <span class="chat-type">{{ chat.is_dm ? 'Direct message' : 'Group · ' + chat.member_count + ' members' }}</span>
+              @if (socketService.writingInChat()[chat.id]) {
+                @if (chat.is_dm) {
+                  <span class="writing-hint">Writing...</span>
+                } @else {
+                  <span class="writing-hint">{{ socketService.writingInChat()[chat.id] }} is writing...</span>
+                }
+              } @else {
+                <span class="chat-type">{{ chat.is_dm ? 'Direct message' : 'Group · ' + chat.member_count + ' members' }}</span>
+              }
             </div>
           </div>
         } @empty {
@@ -226,6 +239,7 @@ import { HttpClient } from '@angular/common/http';
     }
 
     .chat-avatar {
+      position: relative;
       width: 44px;
       height: 44px;
       border-radius: 10px;
@@ -238,6 +252,23 @@ import { HttpClient } from '@angular/common/http';
       font-weight: 600;
       color: var(--accent);
       flex-shrink: 0;
+    }
+
+    .unread-badge {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      background: var(--accent);
+      color: #0d0d0d;
+      font-size: 0.6rem;
+      font-weight: 700;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 4px;
     }
 
     .chat-info {
@@ -254,6 +285,12 @@ import { HttpClient } from '@angular/common/http';
     .chat-type {
       font-size: 0.75rem;
       color: var(--text-secondary);
+    }
+
+    .writing-hint {
+      font-size: 0.75rem;
+      color: var(--accent);
+      font-style: italic;
     }
 
     .empty {

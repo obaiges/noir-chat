@@ -40,8 +40,11 @@ export class SocketService {
   private socket: Socket | null = null;
   private lastWritingTime = 0;
   private stoppedWritingTimer: any;
+  private writingTimers: Record<number, any> = {};
 
-  isWriting = signal(false);
+  writingInChat = signal<Record<number, string>>({});
+  unreadCounts = signal<Record<number, number>>({});
+  currentChatId: number | null = null;
   messages = signal<ChatMessage[]>([]);
   chats = signal<Chat[]>([]);
   pendingInvites = signal<Invite[]>([]);
@@ -59,12 +62,27 @@ export class SocketService {
       this.getPendingFriendRequests();
     });
 
-    this.socket.on('writing', () => {
-      this.isWriting.set(true);
+    this.socket.on('writing', ({ chatId, nickname }: { chatId: number; nickname: string }) => {
+      this.writingInChat.update(w => ({ ...w, [chatId]: nickname }));
+      clearTimeout(this.writingTimers[chatId]);
+      this.writingTimers[chatId] = setTimeout(() => {
+        this.writingInChat.update(w => {
+          const next = { ...w };
+          delete next[chatId];
+          return next;
+        });
+        delete this.writingTimers[chatId];
+      }, 4000);
     });
 
-    this.socket.on('stoppedWriting', () => {
-      this.isWriting.set(false);
+    this.socket.on('stoppedWriting', ({ chatId }: { chatId: number }) => {
+      this.writingInChat.update(w => {
+        const next = { ...w };
+        delete next[chatId];
+        return next;
+      });
+      clearTimeout(this.writingTimers[chatId]);
+      delete this.writingTimers[chatId];
     });
 
     this.socket.on('chats', (chats: Chat[]) => {
@@ -81,6 +99,9 @@ export class SocketService {
 
     this.socket.on('newMessage', (message: ChatMessage) => {
       this.messages.update((msgs) => [...msgs, message]);
+      if (message.chat_id !== this.currentChatId) {
+        this.unreadCounts.update(u => ({ ...u, [message.chat_id]: (u[message.chat_id] || 0) + 1 }));
+      }
     });
 
     this.socket.on('pendingInvites', (invites: Invite[]) => {
@@ -128,14 +149,27 @@ export class SocketService {
     this.pendingInvites.set([]);
     this.friendRequests.set([]);
     this.inviteCount.set(0);
+    this.writingInChat.set({});
+    this.unreadCounts.set({});
+    this.currentChatId = null;
+    Object.values(this.writingTimers).forEach(clearTimeout);
+    this.writingTimers = {};
   }
 
   getChats() {
     this.socket?.emit('getChats');
   }
 
+  setCurrentChat(chatId: number | null) {
+    this.currentChatId = chatId;
+    if (chatId) {
+      this.unreadCounts.update(u => ({ ...u, [chatId]: 0 }));
+    }
+  }
+
   getMessages(chatId: number) {
     this.socket?.emit('getMessages', { chatId });
+    this.unreadCounts.update(u => ({ ...u, [chatId]: 0 }));
   }
 
   createChat(participantPhone: string) {

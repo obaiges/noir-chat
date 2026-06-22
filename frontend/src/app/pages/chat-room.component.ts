@@ -2,7 +2,7 @@ import { Component, inject, OnInit, OnDestroy, ViewChild, ElementRef, effect, co
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../auth.service';
-import { SocketService, ChatMessage } from '../socket.service';
+import { SocketService, ChatMessage, Chat } from '../socket.service';
 
 interface DateGroup {
   label: string;
@@ -37,17 +37,20 @@ interface DateGroup {
       </main>
 
       <footer class="input-bar">
+        @if (isGroup) {
+          <button class="btn-anon" [class.active]="isAnonymous" (click)="isAnonymous = !isAnonymous" title="Send anonymously">A</button>
+        }
         <input
           #messageInput
           type="text"
           placeholder="Type a message..."
-          (keydown)="socketService.writing(chatId)"
+          (keydown)="onTyping()"
           (keyup.enter)="send(messageInput); messageInput.value = ''"
         />
         <button (click)="send(messageInput); messageInput.value = ''">SEND</button>
       </footer>
 
-      @if (writing()) {
+      @if (writingActive()) {
         <div class="writing">Writing...</div>
       }
     </div>
@@ -159,6 +162,25 @@ interface DateGroup {
       background: var(--bg-secondary);
     }
 
+    .btn-anon {
+      padding: 0.75rem 0.8rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 0.7rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0;
+    }
+
+    .btn-anon.active {
+      background: rgba(212, 165, 116, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
     .input-bar input {
       flex: 1;
       padding: 0.75rem 1rem;
@@ -220,7 +242,10 @@ export class ChatRoomComponent implements OnInit, OnDestroy {
   chatId = 0;
   displayName = '';
   userId = 0;
-  writing = this.socketService.isWriting;
+  isGroup = false;
+  isAnonymous = false;
+
+  writingActive = computed(() => !!this.socketService.writingInChat()[this.chatId]);
 
   dateGroups = computed(() => {
     const groups: DateGroup[] = [];
@@ -283,11 +308,13 @@ export class ChatRoomComponent implements OnInit, OnDestroy {
     this.socketService.init(token);
 
     const id = this.route.snapshot.paramMap.get('id');
+    this.socketService.setCurrentChat(Number(id));
     this.chatId = Number(id);
 
     const chats = this.socketService.chats();
     const chat = chats.find(c => c.id === this.chatId);
     this.displayName = chat?.display_name || 'Chat';
+    this.isGroup = chat ? !chat.is_dm : false;
 
     this.socketService.joinChat(this.chatId);
     this.socketService.getMessages(this.chatId);
@@ -297,7 +324,14 @@ export class ChatRoomComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    this.socketService.setCurrentChat(null);
     this.socketService.leaveChat(this.chatId);
+  }
+
+  onTyping() {
+    if (!this.isAnonymous) {
+      this.socketService.writing(this.chatId);
+    }
   }
 
   send(input: HTMLInputElement) {

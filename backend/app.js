@@ -461,11 +461,11 @@ io.on('connection', async (socket) => {
     });
 
     socket.on('writing', ({ chatId }) => {
-        socket.to(`chat:${chatId}`).emit('writing', { chatId });
+        io.except(socket.id).emit('writing', { chatId, nickname: socket.nickname });
     });
 
     socket.on('stoppedWriting', ({ chatId }) => {
-        socket.to(`chat:${chatId}`).emit('stoppedWriting', { chatId });
+        io.except(socket.id).emit('stoppedWriting', { chatId });
     });
 
     socket.on('disconnect', () => {
