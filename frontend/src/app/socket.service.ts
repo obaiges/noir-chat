@@ -97,7 +97,13 @@ export class SocketService {
     });
 
     this.socket.on('chatCreated', (chat: Chat) => {
-      this.getChats();
+      this.chats.update(list => {
+        if (list.some(c => c.id === chat.id)) return list;
+        return [chat, ...list];
+      });
+      if (chat.unread_count) {
+        this.unreadCounts.update(u => ({ ...u, [chat.id]: chat.unread_count }));
+      }
     });
 
     this.socket.on('messages', (messages: ChatMessage[]) => {
@@ -127,13 +133,22 @@ export class SocketService {
       this.getPendingInvites();
     });
 
-    this.socket.on('inviteAccepted', () => {
+    this.socket.on('inviteAccepted', (chat: Chat) => {
       this.getPendingInvites();
-      this.getChats();
+      this.chats.update(list => {
+        if (list.some(c => c.id === chat.id)) return list;
+        return [chat, ...list];
+      });
     });
 
     this.socket.on('inviteDenied', () => {
       this.getPendingInvites();
+    });
+
+    this.socket.on('participantJoined', ({ chatId, memberCount }: { chatId: number, memberCount: number }) => {
+      this.chats.update(list => list.map(c =>
+        c.id === chatId ? { ...c, member_count: memberCount } : c
+      ));
     });
 
     this.socket.on('pendingFriendRequests', (requests: FriendRequest[]) => {

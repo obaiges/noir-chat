@@ -189,15 +189,15 @@ io.on('connection', async (socket) => {
             SELECT c.*,
             (SELECT COUNT(*) FROM participants WHERE chat_id = c.id) as member_count,
             (SELECT MAX(created_at) FROM messages WHERE chat_id = c.id) as last_message_at,
-            (SELECT COUNT(*) FROM messages WHERE chat_id = c.id AND id > COALESCE((SELECT last_read_message_id FROM participants WHERE chat_id = c.id AND user_id = ?), 0)) as unread_count
+            (SELECT COUNT(*) FROM messages WHERE chat_id = c.id AND sender_id != ? AND id > COALESCE((SELECT last_read_message_id FROM participants WHERE chat_id = c.id AND user_id = ?), 0)) as unread_count
             FROM chats c
             JOIN participants p ON c.id = p.chat_id
             WHERE p.user_id = ?
             ORDER BY last_message_at DESC, c.created_at DESC
-        `, socket.userId, socket.userId);
+        `, socket.userId, socket.userId, socket.userId);
 
         for (const chat of chats) {
-            if (chat.member_count === 2) {
+            if (chat.member_count === 2 && !chat.name) {
                 const other = await db.get(`
                     SELECT u.nickname FROM users u
                     JOIN participants p ON u.id = p.user_id
@@ -262,14 +262,44 @@ io.on('connection', async (socket) => {
         await db.run('INSERT INTO participants (chat_id, user_id) VALUES (?, ?)', chatId, socket.userId);
 
         for (const phone of participantPhones) {
-            const user = await db.get('SELECT id FROM users WHERE phone = ?', phone);
-            if (user && user.id !== socket.userId) {
-                await db.run('INSERT INTO participants (chat_id, user_id) VALUES (?, ?)', chatId, user.id);
-                io.to(`user:${user.id}`).emit('chatCreated', { id: chatId, is_dm: false, display_name: name });
-            }
+            const user = await db.get('SELECT id, nickname FROM users WHERE phone = ?', phone);
+            if (!user || user.id === socket.userId) continue;
+
+            const isMember = await db.get(
+                'SELECT 1 FROM participants WHERE chat_id = ? AND user_id = ?',
+                chatId, user.id
+            );
+            if (isMember) continue;
+
+            const existingInvite = await db.get(
+                'SELECT id FROM group_invites WHERE chat_id = ? AND to_user_id = ? AND status = "pending"',
+                chatId, user.id
+            );
+            if (existingInvite) continue;
+
+            const inviteResult = await db.run(
+                'INSERT INTO group_invites (chat_id, from_user_id, to_user_id) VALUES (?, ?, ?)',
+                chatId, socket.userId, user.id
+            );
+
+            io.to(`user:${user.id}`).emit('newInvite', {
+                id: inviteResult.lastID,
+                chat_id: chatId,
+                chat_name: name,
+                from_nickname: socket.nickname
+            });
         }
 
-        socket.emit('chatCreated', { id: chatId, is_dm: false, display_name: name });
+        socket.emit('chatCreated', {
+            id: chatId,
+            name: name,
+            display_name: name,
+            is_dm: false,
+            member_count: 1,
+            last_message_at: null,
+            unread_count: 0,
+            created_at: new Date().toISOString()
+        });
     });
 
     socket.on('joinChat', ({ chatId }) => {
@@ -397,11 +427,29 @@ io.on('connection', async (socket) => {
             );
             await db.run('UPDATE group_invites SET status = "accepted" WHERE id = ?', inviteId);
 
-            const chat = await db.get('SELECT name FROM chats WHERE id = ?', invite.chat_id);
+            const chat = await db.get('SELECT id, name, created_at FROM chats WHERE id = ?', invite.chat_id);
+            const memberCount = await db.get(
+                'SELECT COUNT(*) as count FROM participants WHERE chat_id = ?',
+                invite.chat_id
+            );
             socket.emit('inviteAccepted', {
-                chatId: invite.chat_id,
-                name: chat?.name
+                id: chat.id,
+                name: chat.name,
+                display_name: chat.name,
+                is_dm: false,
+                member_count: memberCount.count,
+                last_message_at: null,
+                unread_count: 0,
+                created_at: chat.created_at
             });
+            socket.join(`chat:${invite.chat_id}`);
+            const existingParticipants = await db.all(
+                'SELECT user_id FROM participants WHERE chat_id = ? AND user_id != ?',
+                invite.chat_id, socket.userId
+            );
+            for (const p of existingParticipants) {
+                io.to(`user:${p.user_id}`).emit('participantJoined', { chatId: invite.chat_id, memberCount: memberCount.count });
+            }
         } else {
             await db.run('UPDATE group_invites SET status = "denied" WHERE id = ?', inviteId);
             socket.emit('inviteDenied');

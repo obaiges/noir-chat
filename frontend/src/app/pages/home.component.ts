@@ -26,8 +26,8 @@ import { HttpClient } from '@angular/common/http';
       <main class="chat-list">
         @for (chat of socketService.chats(); track chat.id) {
           <div class="chat-item" (click)="openChat(chat.id)">
-            <div class="chat-avatar">
-              {{ chat.is_dm ? 'DM' : 'G' }}
+            <div class="chat-avatar" [class.group-avatar]="!chat.is_dm">
+              {{ chat.is_dm ? 'DM' : 'GR' }}
               @if (socketService.unreadCounts()[chat.id]) {
                 <span class="unread-badge">{{ socketService.unreadCounts()[chat.id] }}</span>
               }
@@ -40,8 +40,10 @@ import { HttpClient } from '@angular/common/http';
                 } @else {
                   <span class="writing-hint">{{ socketService.writingInChat()[chat.id] }} is writing...</span>
                 }
+              } @else if (chat.is_dm) {
+                <span class="chat-type">Direct message</span>
               } @else {
-                <span class="chat-type">{{ chat.is_dm ? 'Direct message' : 'Group · ' + chat.member_count + ' members' }}</span>
+                <span class="chat-type">{{ chat.member_count }} participant{{ chat.member_count !== 1 ? 's' : '' }}</span>
               }
             </div>
           </div>
@@ -57,38 +59,91 @@ import { HttpClient } from '@angular/common/http';
     </div>
 
     @if (showNewChat) {
-      <div class="modal-overlay" (click)="showNewChat = false">
+      <div class="modal-overlay" (click)="closeNewChat()">
         <div class="modal" (click)="$event.stopPropagation()">
-          <h2>New Chat</h2>
-          <p class="modal-sub">Search by phone number</p>
-          <input
-            type="tel"
-            placeholder="Phone number"
-            [(ngModel)]="searchPhone"
-            (input)="searchUser()"
-          />
-          @if (searchResult) {
-            @if (requestSent) {
-              <div class="search-result sent">
-                <div class="result-avatar">{{ searchResult.nickname[0] }}</div>
-                <div class="result-info">
-                  <span class="result-name">{{ searchResult.nickname }}</span>
-                  <span class="result-phone">Request sent</span>
+
+          @if (newChatStep === 'choose') {
+            <h2>New Chat</h2>
+            <button class="btn-choice" (click)="startDM()">Direct Message</button>
+            <button class="btn-choice" (click)="startGroup()">Group</button>
+            <button class="btn-cancel" (click)="closeNewChat()">Cancel</button>
+          }
+
+          @if (newChatStep === 'dm') {
+            <h2>New Chat</h2>
+            <p class="modal-sub">Search by phone number</p>
+            <input
+              type="tel"
+              placeholder="Phone number"
+              [(ngModel)]="searchPhone"
+              (input)="searchUser()"
+            />
+            @if (searchResult) {
+              @if (requestSent) {
+                <div class="search-result sent">
+                  <div class="result-avatar">{{ searchResult.nickname[0] }}</div>
+                  <div class="result-info">
+                    <span class="result-name">{{ searchResult.nickname }}</span>
+                    <span class="result-phone">Request sent</span>
+                  </div>
                 </div>
-              </div>
-            } @else {
-              <div class="search-result" (click)="sendRequest(searchResult)">
-                <div class="result-avatar">{{ searchResult.nickname[0] }}</div>
-                <div class="result-info">
-                  <span class="result-name">{{ searchResult.nickname }}</span>
-                  <span class="result-phone">{{ searchResult.phone }} — Click to add</span>
+              } @else {
+                <div class="search-result" (click)="sendRequest(searchResult)">
+                  <div class="result-avatar">{{ searchResult.nickname[0] }}</div>
+                  <div class="result-info">
+                    <span class="result-name">{{ searchResult.nickname }}</span>
+                    <span class="result-phone">{{ searchResult.phone }} — Click to add</span>
+                  </div>
                 </div>
+              }
+            } @else if (searched && !searchResult) {
+              <p class="not-found">User not found</p>
+            }
+            <button class="btn-cancel" (click)="backToChoose()">Back</button>
+            <button class="btn-cancel" (click)="closeNewChat()">Cancel</button>
+          }
+
+          @if (newChatStep === 'group') {
+            <h2>New Group</h2>
+            <input
+              type="text"
+              placeholder="Group name"
+              [(ngModel)]="groupName"
+            />
+            <div class="add-row">
+              <input
+                type="tel"
+                placeholder="Phone number"
+                [(ngModel)]="groupPhone"
+                (keyup.enter)="addGroupParticipant()"
+              />
+              <button class="btn-add" (click)="addGroupParticipant()">ADD</button>
+            </div>
+            @if (groupSearchError) {
+              <p class="not-found">{{ groupSearchError }}</p>
+            }
+            @if (groupParticipants.length) {
+              <div class="participant-list">
+                @for (p of groupParticipants; track $index) {
+                  <div class="participant-item">
+                    <span>{{ p.nickname }} · {{ p.phone }}</span>
+                    <button class="btn-remove" (click)="removeGroupParticipant($index)">✕</button>
+                  </div>
+                }
               </div>
             }
-          } @else if (searched && !searchResult) {
-            <p class="not-found">User not found</p>
+            @if (groupCreated) {
+              <p class="success">Group created! Invites sent.</p>
+            }
+            <button
+              class="btn-create"
+              [disabled]="!groupName || !groupParticipants.length || groupCreated"
+              (click)="createGroup()"
+            >CREATE & SEND INVITES</button>
+            <button class="btn-cancel" (click)="backToChoose()">Back</button>
+            <button class="btn-cancel" (click)="closeNewChat()">Cancel</button>
           }
-          <button class="btn-cancel" (click)="showNewChat = false">Cancel</button>
+
         </div>
       </div>
     }
@@ -252,6 +307,11 @@ import { HttpClient } from '@angular/common/http';
       font-weight: 600;
       color: var(--accent);
       flex-shrink: 0;
+    }
+
+    .group-avatar {
+      background: rgba(212, 165, 116, 0.1);
+      border-color: rgba(212, 165, 116, 0.25);
     }
 
     .unread-badge {
@@ -448,6 +508,114 @@ import { HttpClient } from '@angular/common/http';
       margin: 0.75rem 0;
     }
 
+    .btn-choice {
+      width: 100%;
+      padding: 0.8rem;
+      margin-top: 0.5rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-choice:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .add-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .add-row input {
+      flex: 1;
+      margin-bottom: 0;
+    }
+
+    .btn-add {
+      padding: 0.75rem 1rem;
+      background: var(--accent);
+      color: #0d0d0d;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+
+    .btn-add:hover {
+      background: var(--accent-hover);
+    }
+
+    .participant-list {
+      margin: 0.5rem 0;
+    }
+
+    .participant-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.4rem 0.6rem;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      margin-bottom: 0.3rem;
+      font-size: 0.8rem;
+      color: var(--text-primary);
+    }
+
+    .btn-remove {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 0.2rem;
+    }
+
+    .btn-remove:hover {
+      color: var(--error);
+    }
+
+    .btn-create {
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 0.75rem;
+      background: var(--accent);
+      color: #0d0d0d;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-create:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .btn-create:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    .success {
+      text-align: center;
+      color: var(--accent);
+      font-size: 0.8rem;
+      margin-top: 0.5rem;
+    }
+
     .btn-cancel {
       width: 100%;
       padding: 0.6rem;
@@ -524,10 +692,20 @@ export class HomeComponent {
 
   showNewChat = false;
   showInvites = false;
+
+  // DM state
   searchPhone = '';
   searchResult: any = null;
   searched = false;
   requestSent = false;
+
+  // New chat flow
+  newChatStep: 'choose' | 'dm' | 'group' = 'choose';
+  groupName = '';
+  groupPhone = '';
+  groupParticipants: { phone: string; nickname: string }[] = [];
+  groupSearchError = '';
+  groupCreated = false;
 
   constructor() {
     const token = this.auth.getToken();
@@ -564,6 +742,69 @@ export class HomeComponent {
           this.searchResult = null;
         }
       });
+  }
+
+  startDM() {
+    this.newChatStep = 'dm';
+  }
+
+  startGroup() {
+    this.newChatStep = 'group';
+  }
+
+  backToChoose() {
+    this.newChatStep = 'choose';
+    this.searchPhone = '';
+    this.searchResult = null;
+    this.searched = false;
+    this.requestSent = false;
+    this.groupName = '';
+    this.groupPhone = '';
+    this.groupParticipants = [];
+    this.groupSearchError = '';
+    this.groupCreated = false;
+  }
+
+  closeNewChat() {
+    this.showNewChat = false;
+    this.backToChoose();
+  }
+
+  addGroupParticipant() {
+    const phone = this.groupPhone.trim();
+    if (!phone) return;
+    this.groupSearchError = '';
+
+    if (this.groupParticipants.some(p => p.phone === phone)) {
+      this.groupSearchError = 'Already added';
+      return;
+    }
+
+    this.http.post('http://localhost:3000/api/search-user', { phone })
+      .subscribe({
+        next: (res: any) => {
+          if (res.user) {
+            this.groupParticipants = [...this.groupParticipants, { phone: res.user.phone, nickname: res.user.nickname }];
+            this.groupPhone = '';
+          } else {
+            this.groupSearchError = 'User not found';
+          }
+        },
+        error: () => {
+          this.groupSearchError = 'Search failed';
+        }
+      });
+  }
+
+  removeGroupParticipant(index: number) {
+    this.groupParticipants = this.groupParticipants.filter((_, i) => i !== index);
+  }
+
+  createGroup() {
+    if (!this.groupName || !this.groupParticipants.length) return;
+    const phones = this.groupParticipants.map(p => p.phone);
+    this.socketService.createGroup(this.groupName, phones);
+    this.groupCreated = true;
   }
 
   acceptInvite(inviteId: number) {
