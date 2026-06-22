@@ -8,6 +8,8 @@ export interface Chat {
   is_dm: boolean;
   member_count: number;
   created_at: string;
+  last_message_at: string;
+  unread_count: number;
 }
 
 export interface ChatMessage {
@@ -87,6 +89,11 @@ export class SocketService {
 
     this.socket.on('chats', (chats: Chat[]) => {
       this.chats.set(chats);
+      const counts: Record<number, number> = {};
+      for (const c of chats) {
+        if (c.unread_count) counts[c.id] = c.unread_count;
+      }
+      this.unreadCounts.set(counts);
     });
 
     this.socket.on('chatCreated', (chat: Chat) => {
@@ -103,6 +110,12 @@ export class SocketService {
       } else {
         this.unreadCounts.update(u => ({ ...u, [message.chat_id]: (u[message.chat_id] || 0) + 1 }));
       }
+      this.chats.update(list => {
+        const idx = list.findIndex(c => c.id === message.chat_id);
+        if (idx <= 0) return list;
+        const chat = { ...list[idx], last_message_at: message.created_at };
+        return [chat, ...list.slice(0, idx), ...list.slice(idx + 1)];
+      });
     });
 
     this.socket.on('pendingInvites', (invites: Invite[]) => {
@@ -161,10 +174,15 @@ export class SocketService {
     this.socket?.emit('getChats');
   }
 
+  markRead(chatId: number) {
+    this.socket?.emit('markRead', { chatId });
+  }
+
   setCurrentChat(chatId: number | null) {
     this.currentChatId = chatId;
     if (chatId) {
       this.unreadCounts.update(u => ({ ...u, [chatId]: 0 }));
+      this.markRead(chatId);
     }
   }
 

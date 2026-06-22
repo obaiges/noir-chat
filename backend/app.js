@@ -77,6 +77,8 @@ async function initDb() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     `);
+
+    try { await db.exec(`ALTER TABLE participants ADD COLUMN last_read_message_id INTEGER DEFAULT 0`); } catch (e) {}
 }
 
 initDb();
@@ -185,12 +187,14 @@ io.on('connection', async (socket) => {
     socket.on('getChats', async () => {
         const chats = await db.all(`
             SELECT c.*,
-            (SELECT COUNT(*) FROM participants WHERE chat_id = c.id) as member_count
+            (SELECT COUNT(*) FROM participants WHERE chat_id = c.id) as member_count,
+            (SELECT MAX(created_at) FROM messages WHERE chat_id = c.id) as last_message_at,
+            (SELECT COUNT(*) FROM messages WHERE chat_id = c.id AND id > COALESCE((SELECT last_read_message_id FROM participants WHERE chat_id = c.id AND user_id = ?), 0)) as unread_count
             FROM chats c
             JOIN participants p ON c.id = p.chat_id
             WHERE p.user_id = ?
-            ORDER BY c.created_at DESC
-        `, socket.userId);
+            ORDER BY last_message_at DESC, c.created_at DESC
+        `, socket.userId, socket.userId);
 
         for (const chat of chats) {
             if (chat.member_count === 2) {
@@ -274,6 +278,16 @@ io.on('connection', async (socket) => {
 
     socket.on('leaveChat', ({ chatId }) => {
         socket.leave(`chat:${chatId}`);
+    });
+
+    socket.on('markRead', async ({ chatId }) => {
+        const lastMsg = await db.get('SELECT MAX(id) as max_id FROM messages WHERE chat_id = ?', chatId);
+        if (lastMsg?.max_id) {
+            await db.run(
+                'UPDATE participants SET last_read_message_id = ? WHERE chat_id = ? AND user_id = ?',
+                lastMsg.max_id, chatId, socket.userId
+            );
+        }
     });
 
     socket.on('getMessages', async ({ chatId }) => {
