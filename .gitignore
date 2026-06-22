@@ -10,7 +10,7 @@ bazel-out/
 build/
 
 # Angular cache
-.angular/cache/
+.angular/
 
 # Environment files
 .env
