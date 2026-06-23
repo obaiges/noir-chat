@@ -36,22 +36,33 @@ interface DateGroup {
         }
       </main>
 
-      <footer class="input-bar">
+      <footer class="input-bar" [class.anon]="isAnonymous">
         @if (isGroup) {
-          <button class="btn-anon" [class.active]="isAnonymous" (click)="isAnonymous = !isAnonymous" title="Send anonymously">A</button>
+          <button class="btn-anon" [class.active]="isAnonymous" (click)="isAnonymous = !isAnonymous" title="Toggle anonymous">
+            @if (isAnonymous) { ANON ON } @else { ANON }
+          </button>
         }
         <input
           #messageInput
           type="text"
-          placeholder="Type a message..."
+          [placeholder]="isAnonymous ? 'Write anonymously...' : 'Type a message...'"
           (keydown)="onTyping()"
           (keyup.enter)="send(messageInput); messageInput.value = ''"
         />
         <button (click)="send(messageInput); messageInput.value = ''">SEND</button>
+        @if (isAnonymous) {
+          <span class="anon-tag">ANONYMOUS</span>
+        }
       </footer>
 
       @if (writingActive()) {
-        <div class="writing">Writing...</div>
+        <div class="writing">
+          @if (isGroup) {
+            {{ socketService.writingInChat()[chatId] }} is writing...
+          } @else {
+            Writing...
+          }
+        </div>
       }
     </div>
   `,
@@ -160,6 +171,7 @@ interface DateGroup {
       padding: 1rem 1.5rem;
       border-top: 1px solid var(--border);
       background: var(--bg-secondary);
+      position: relative;
     }
 
     .btn-anon {
@@ -179,6 +191,23 @@ interface DateGroup {
       background: rgba(212, 165, 116, 0.15);
       border-color: var(--accent);
       color: var(--accent);
+    }
+
+    .input-bar.anon {
+      border-top-color: var(--accent);
+    }
+
+    .anon-tag {
+      position: absolute;
+      bottom: 100%;
+      right: 1.5rem;
+      background: var(--accent);
+      color: #0d0d0d;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px 4px 0 0;
     }
 
     .input-bar input {
@@ -246,6 +275,16 @@ export class ChatRoomComponent implements OnInit, OnDestroy {
   isAnonymous = false;
 
   writingActive = computed(() => !!this.socketService.writingInChat()[this.chatId]);
+
+  private chatEffect = effect(() => {
+    const chats = this.socketService.chats();
+    if (!this.chatId || !chats.length) return;
+    const chat = chats.find(c => c.id === this.chatId);
+    if (chat) {
+      this.displayName = chat.display_name || 'Chat';
+      this.isGroup = !chat.is_dm;
+    }
+  });
 
   dateGroups = computed(() => {
     const groups: DateGroup[] = [];
@@ -337,7 +376,7 @@ export class ChatRoomComponent implements OnInit, OnDestroy {
   send(input: HTMLInputElement) {
     const content = input.value.trim();
     if (!content) return;
-    this.socketService.sendMessage(this.chatId, content);
+    this.socketService.sendMessage(this.chatId, content, this.isAnonymous);
   }
 
   goBack() {

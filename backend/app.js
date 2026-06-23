@@ -328,7 +328,7 @@ io.on('connection', async (socket) => {
         socket.emit('messages', messages);
     });
 
-    socket.on('sendMessage', async ({ chatId, content }) => {
+    socket.on('sendMessage', async ({ chatId, content, anonymous }) => {
         if (!chatId || !content?.trim()) return;
 
         const isParticipant = await db.get(
@@ -337,11 +337,13 @@ io.on('connection', async (socket) => {
         );
         if (!isParticipant) return;
 
+        const nickname = anonymous ? 'Anonymous' : socket.nickname;
+
         let messageId;
         try {
             const result = await db.run(
                 'INSERT INTO messages (chat_id, sender_id, sender_nickname, message) VALUES (?, ?, ?, ?)',
-                chatId, socket.userId, socket.nickname, content
+                chatId, socket.userId, nickname, content
             );
             messageId = result.lastID;
         } catch (e) {
@@ -353,7 +355,7 @@ io.on('connection', async (socket) => {
             id: messageId,
             chat_id: chatId,
             sender_id: socket.userId,
-            sender_nickname: socket.nickname,
+            sender_nickname: nickname,
             message: content,
             created_at: new Date().toISOString()
         };

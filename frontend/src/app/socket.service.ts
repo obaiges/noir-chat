@@ -222,10 +222,10 @@ export class SocketService {
     this.socket?.emit('leaveChat', { chatId });
   }
 
-  sendMessage(chatId: number, content: string) {
+  sendMessage(chatId: number, content: string, anonymous = false) {
     if (!this.socket || !content?.trim()) return;
     this.stopWriting(chatId);
-    this.socket.emit('sendMessage', { chatId, content });
+    this.socket.emit('sendMessage', { chatId, content, anonymous });
   }
 
   sendInvite(phone: string, chatId: number) {
