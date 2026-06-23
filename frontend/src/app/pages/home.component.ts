@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../auth.service';
@@ -11,8 +11,25 @@ import { HttpClient } from '@angular/common/http';
   template: `
     <div class="home-container">
       <header class="header">
-        <h1 class="logo">NOIR</h1>
-        <div class="actions">
+        @if (!showSearch) {
+            <h1 class="logo">NOIR</h1>
+          } @else {
+            <input
+              #searchInput
+              class="search-input"
+              type="text"
+              placeholder="Search chats..."
+              [(ngModel)]="searchQuery"
+              (blur)="closeSearch()"
+            />
+          }
+        <div class="header-right">
+          <button class="btn-search" (click)="toggleSearch()" [class.active]="showSearch">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
           <button class="btn-invites" (click)="showInvites = true">
             INVITES
             @if (socketService.inviteCount() > 0) {
@@ -24,7 +41,7 @@ import { HttpClient } from '@angular/common/http';
       </header>
 
       <main class="chat-list">
-        @for (chat of socketService.chats(); track chat.id) {
+        @for (chat of filteredChats(); track chat.id) {
           <div class="chat-item" (click)="openChat(chat.id)">
             <div class="chat-avatar" [class.group-avatar]="!chat.is_dm">
               {{ chat.is_dm ? 'DM' : 'GR' }}
@@ -48,10 +65,16 @@ import { HttpClient } from '@angular/common/http';
             </div>
           </div>
         } @empty {
-          <div class="empty">
-            <p>No chats yet</p>
-            <p class="hint">Tap + to start a new conversation</p>
-          </div>
+          @if (searchQuery()) {
+            <div class="empty">
+              <p>No chats match "{{ searchQuery() }}"</p>
+            </div>
+          } @else {
+            <div class="empty">
+              <p>No chats yet</p>
+              <p class="hint">Tap + to start a new conversation</p>
+            </div>
+          }
         }
       </main>
 
@@ -208,6 +231,14 @@ import { HttpClient } from '@angular/common/http';
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--border);
       background: var(--bg-secondary);
+      gap: 0.75rem;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      min-width: 0;
     }
 
     .logo {
@@ -215,12 +246,69 @@ import { HttpClient } from '@angular/common/http';
       letter-spacing: 4px;
       color: var(--accent);
       font-weight: 300;
+      flex-shrink: 0;
     }
 
-    .actions {
+    .header-right {
       display: flex;
-      gap: 0.5rem;
       align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .btn-search {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 0.35rem;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      transition: all 0.2s;
+    }
+
+    .btn-search:hover,
+    .btn-search.active {
+      color: var(--accent);
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 0.4rem 0.75rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 0.8rem;
+      outline: none;
+      animation: searchFadeIn 0.2s ease-out;
+    }
+
+    .search-input::placeholder {
+      color: var(--text-secondary);
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+    }
+
+    @keyframes searchFadeIn {
+      from {
+        opacity: 0;
+        transform: translateX(-8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
     }
 
     .btn-invites {
@@ -692,6 +780,15 @@ export class HomeComponent {
 
   showNewChat = false;
   showInvites = false;
+  showSearch = false;
+  searchQuery = signal('');
+
+  filteredChats = computed(() => {
+    const chats = this.socketService.chats();
+    const q = this.searchQuery().toLowerCase().trim();
+    if (!q) return chats;
+    return chats.filter(c => c.display_name?.toLowerCase().includes(q));
+  });
 
   // DM state
   searchPhone = '';
@@ -827,5 +924,23 @@ export class HomeComponent {
     this.socketService.disconnect();
     this.auth.logout();
     this.router.navigate(['/login']);
+  }
+
+  toggleSearch() {
+    this.showSearch = !this.showSearch;
+    if (!this.showSearch) {
+      this.searchQuery.set('');
+    } else {
+      setTimeout(() => {
+        const el = document.querySelector<HTMLInputElement>('.search-input');
+        el?.focus();
+      }, 100);
+    }
+  }
+
+  closeSearch() {
+    if (!this.searchQuery()) {
+      this.showSearch = false;
+    }
   }
 }
